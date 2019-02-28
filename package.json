@@ -35,5 +35,11 @@
     "tslint": "^5.13.0",
     "typescript": "^3.3.3333",
     "utility-types": "^3.4.1"
-  }
+  },
+  "keywords": [
+    "react",
+    "context",
+    "productivity",
+    "utilities"
+  ]
 }
