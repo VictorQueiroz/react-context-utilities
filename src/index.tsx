@@ -92,40 +92,34 @@ export function withContext<
     map: T,
     mapContextToProps: CombinerFunction<T, CombinedProps, AdditionalProps>
 ) {
-    return <P extends CombinedProps>(
-        Component: React.ComponentType<P>
-    ): React.ComponentClass<
-        Diff<P, CombinedProps> & AdditionalProps
-    > => {
-        return class extends React.PureComponent<
-            Diff<P, CombinedProps> & AdditionalProps
-        > {
-            public static displayName = `SafeContext(${Component.displayName})`;
-            public getContents(index: number, props: string[], result: any) {
-                const prop = props[index] as keyof T;
-                const Context = map[prop];
-                const { Consumer } = Context as any;
+    return <P extends CombinedProps>(Component: React.ComponentType<P>) => {
+        type ComponentProps = Diff<P, CombinedProps> & AdditionalProps;
+        function getContents(index: number, parentProps: ComponentProps, props: string[], result: any) {
+            const prop = props[index] as keyof T;
+            const Context = map[prop];
+            const { Consumer } = Context as any;
 
-                return <Consumer>
-                    {(value: any) => {
-                        const nextResult = {
-                            ...result,
-                            [prop]: value
-                        };
-                        if(index === (props.length - 1)) {
-                            const contextProps: any = mapContextToProps(nextResult, this.props as any);
-                            return <Component
-                                {...this.props}
-                                {...contextProps}
-                            />;
-                        }
-                        return this.getContents(index + 1, props, nextResult);
-                    }}
-                </Consumer>;
-            }
-            public render() {
-                return this.getContents(0, Object.keys(map), {});
-            }
-        };
+            return <Consumer>
+                {(value: any) => {
+                    const nextResult = {
+                        ...result,
+                        [prop]: value
+                    };
+                    if(index === (props.length - 1)) {
+                        const contextProps: any = mapContextToProps(nextResult, parentProps);
+                        return <Component
+                            {...parentProps}
+                            {...contextProps}
+                        />;
+                    }
+                    return getContents(index + 1, parentProps, props, nextResult);
+                }}
+            </Consumer>;
+        }
+        function SafeContext(props: ComponentProps) {
+            return getContents(0, props, Object.keys(map), {});
+        }
+        SafeContext.displayName = `SafeContext(${Component.displayName})`;
+        return SafeContext;
     };
 }
