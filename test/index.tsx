@@ -1,9 +1,16 @@
 import { expect } from 'chai';
 import { shallow } from 'enzyme';
 import * as React from 'react';
-import { test } from 'sarg';
+import { Suite } from 'sarg';
 import { spy } from 'sinon';
-import { createSafeContext, withContext } from '../src';
+import {
+    ContextFailure,
+    createSafeContext,
+    withContext
+} from '../src';
+
+const suite = new Suite();
+const {test} = suite;
 
 test('it should provide context', () => {
     const VersionContext = createSafeContext<string>();
@@ -21,16 +28,78 @@ test('it should provide context', () => {
     expect(contextFn).to.have.been.calledWith('1.20');
 });
 
-test('it should throw for unexistent context', () => {
+test('it should render the value provided to ContextFailure in case of unprovided context', () => {
     const VersionContext = createSafeContext<string>({
         name: 'VersionContext'
     });
-    const contextFn = spy();
-    const wrapper = shallow(
-        <VersionContext.Consumer>{contextFn}</VersionContext.Consumer>
+    const Test = () => (
+        <ContextFailure.Provider value={<React.Fragment>
+            There was an application error, please try again later.
+        </React.Fragment>}>
+            <VersionContext.Consumer>{() => null}</VersionContext.Consumer>
+        </ContextFailure.Provider>
     );
-    expect(() => wrapper.html()).to.throw(/Invalid value provided for VersionContext context/);
-    expect(contextFn).to.have.not.been.called;
+    const wrapper = shallow(
+        <Test/>
+    );
+    expect(wrapper.html()).to.be.equal('There was an application error, please try again later.');
+});
+
+test('withContext() should work if withContext receive no contexts at all', () => {
+    const Test1 = ({title}: {title: string;}) => <React.Fragment>
+        {title}
+    </React.Fragment>;
+    const Wrapped_Test1 = withContext({}, () => ({}))(Test1);
+    const wrapper = shallow(<Wrapped_Test1 title="Title" />);
+    expect(wrapper.html()).to.be.equal('Title');
+});
+
+test('withContext() baked component should return original component', () => {
+    const VersionContext = React.createContext(1.0);
+    const Test1 = ({title, version}: {
+        title: string;
+        version: number;
+    }) => <React.Fragment>{title} v{version.toFixed(1)}</React.Fragment>;
+    const Wrapped_Test1 = withContext({
+        version: VersionContext
+    }, ({version}) => ({version}))(Test1);
+    const wrapper1 = shallow(
+        <Wrapped_Test1.Component
+            title="App"
+            version={2.0}/>
+    );
+    const wrapper2 = shallow(
+        <Wrapped_Test1 title="App"/>
+    );
+    expect(wrapper1.html()).to.be.equal('App v2.0');
+    expect(wrapper2.html()).to.be.equal('App v1.0');
+});
+
+test('withContext() should handle multiple contexts', () => {
+    const Version = React.createContext(1.0);
+    const URL = React.createContext('http://localhost:8080');
+    const Location = React.createContext([
+        37.0902,
+        95.7129
+    ]);
+    const View = ({
+        url,
+        location,
+        version
+    }: {
+        location: [number, number];
+        version: number;
+        url: string;
+    }) => <React.Fragment>
+        URL: {url}, Location: latitude = {location[0]}, longitude = {location[1]}, Version: {version.toFixed(1)}
+    </React.Fragment>;
+    const Wrapped_View = withContext({
+        version: Version,
+        url: URL,
+        location: Location
+    }, props => props)(View);
+    const wrapper = shallow(<Wrapped_View/>);
+    expect(wrapper.html()).to.be.equal('URL: http://localhost:8080, Location: latitude = 37.0902, longitude = 95.7129, Version: 1.0')
 });
 
 test('withContext() should combine one or more context', () => {
@@ -40,9 +109,9 @@ test('withContext() should combine one or more context', () => {
     const ConfigContext = createSafeContext<IConfig>({
         name: 'ConfigContext'
     });
-    const Menu = ({ config }: { config: IConfig; }) => {
+    const Menu = ({ config, title }: { config: IConfig; title: string; }) => {
         return <React.Fragment>
-            Max response time is {config.maxWaitTime}
+            Title property is "{title}" and max response time is "{config.maxWaitTime}"
         </React.Fragment>;
     };
     const MenuWithContext = withContext({
@@ -51,8 +120,10 @@ test('withContext() should combine one or more context', () => {
         config
     }))(Menu);
     const wrapper = shallow(<ConfigContext.Provider value={{ maxWaitTime: 1000 }}>
-        <MenuWithContext/>
+        <MenuWithContext title="x" />
     </ConfigContext.Provider>);
 
-    expect(wrapper.html()).to.be.deep.equal('Max response time is 1000');
+    expect(wrapper.html()).to.be.deep.equal('Title property is &quot;x&quot; and max response time is &quot;1000&quot;');
 });
+
+export default suite;

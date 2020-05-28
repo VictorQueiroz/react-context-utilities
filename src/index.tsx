@@ -2,26 +2,17 @@ import * as React from 'react';
 import { ConsumerProps, createContext, ProviderProps } from "react";
 import { Diff } from 'utility-types';
 
-export type ExtractProps<T> = T extends React.ComponentClass<infer Props> ? Props :
-                                                            T extends React.StatelessComponent<infer OutputProps> ?
-                                                            OutputProps :
-                                                            never;
-
 export type ExtractContextType<T> = T extends React.Context<infer ContextType> ?
                                     ContextType :
                                     T extends ISafeContext<infer OutputContextType> ?
                                     OutputContextType : never;
 
-type AcceptedReactElements<T> = (
-    React.ReactNode | React.ReactElement<T> | (T extends HTMLElement ? React.ReactHTMLElement<T> : never) | null
-);
-
 export interface ISafeContext<T> {
-    Provider: React.FunctionComponent<{
+    Provider: React.ComponentType<{
         value: T;
     }>;
-    Consumer: React.FunctionComponent<{
-        children: <R> (value: T) => AcceptedReactElements<R>;
+    Consumer: React.ComponentType<{
+        children: (value: T) => React.ReactNode;
     }>;
 }
 
@@ -30,96 +21,102 @@ export interface ISafeContextOptions {
     /**
      * Executed
      */
-    onError?: <T> (this: ISafeContextOptions) => AcceptedReactElements<T>;
+    onError?: (this: ISafeContextOptions) => React.ReactNode;
 }
 
+export const ContextFailure = createContext<React.ReactNode>(null);
+
 /**
- * By default the createSafeContext() will throw an warning and render null for non-available
- * context, but you can easily tweak the input options to change the default
- * behavior
+ * By default the createSafeContext() will render whatever was provided to `ContextFailure`
+ * in case of a context provider is missing, but you can easily tweak the input options to
+ * change the default behavior. (See `onError` option)
  * @param data Safe context options
  */
 export function createSafeContext<T>(data: ISafeContextOptions = {}): ISafeContext<T> {
-    const {
-        Provider,
-        Consumer: UnsafeConsumer
-    } = createContext<T | undefined>(undefined);
-    return {
-        Provider(props: ProviderProps<T>) {
-            return <Provider {...props} />;
-        },
-        Consumer({
-            children,
-            ...props
-        }: ConsumerProps<T>) {
-            return <UnsafeConsumer {...props}>
-                {(value) => {
-                    if(typeof value === 'undefined') {
-                        if(data.onError) {
-                            return data.onError();
-                        }
-                        throw new Error(`Invalid value provided for ${data.name} context`);
+    const OriginalContext = createContext<T | undefined>(undefined);
+    function Provider(props: ProviderProps<T>) {
+        return <OriginalContext.Provider {...props} />;
+    }
+    Provider.displayName = `SafeContext(Provider(${data.name}))`;
+
+    function Consumer({
+        children,
+        ...props
+    }: ConsumerProps<T>) {
+        return <OriginalContext.Consumer {...props}>
+            {(value) => {
+                if(typeof value === 'undefined') {
+                    if(data.onError) {
+                        return data.onError();
                     }
-                    return children(value);
-                }}
-            </UnsafeConsumer>;
-        }
+                    return <ContextFailure.Consumer>
+                        {children => children}
+                    </ContextFailure.Consumer>;
+                }
+                return children(value);
+            }}
+        </OriginalContext.Consumer>;
+    }
+    Consumer.displayName = `SafeContext(Consumer(${data.name}))`;
+    return {
+        Provider,
+        Consumer
     };
 }
 
-export type ContextMap<T> = {
-    [K in keyof T]: T extends React.Context<ExtractContextType<T[K]>> ?
-                    React.Context<ExtractContextType<T[K]>> :
-                    ISafeContext<ExtractContextType<T[K]>>;
+export type ResolveContextMap<Map extends object> = {
+    [K in keyof Map]: ExtractContextType<Map[K]>;
 };
 
-export type CombinerFunction<T, R, P> = (
-    input: {
-        [K in keyof T]: ExtractContextType<T[K]>;
-    },
-    props: P
-) => R;
-
 export function withContext<
-    T extends ContextMap<T>,
-    CombinedProps extends object = {},
+    ContextMap extends Record<string, React.Context<any> | ISafeContext<any>>,
     /**
-     * Additional properties that will be necessary to instantiate
-     * the contextified component
+     * Props that are going to be omitted from component when attached
      */
-    AdditionalProps extends object = {}
+    TargetProps extends object
 >(
-    map: T,
-    mapContextToProps: CombinerFunction<T, CombinedProps, AdditionalProps>
+    contextMap: ContextMap,
+    mapContextToProps: ((contextMap: ResolveContextMap<ContextMap>) => TargetProps)
 ) {
-    return <P extends CombinedProps>(Component: React.ComponentType<P>) => {
-        type ComponentProps = Diff<P, CombinedProps> & AdditionalProps;
-        function getContents(index: number, parentProps: ComponentProps, props: string[], result: any) {
-            const prop = props[index] as keyof T;
-            const Context = map[prop];
-            const { Consumer } = Context as any;
-
-            return <Consumer>
-                {(value: any) => {
-                    const nextResult = {
-                        ...result,
-                        [prop]: value
-                    };
-                    if(index === (props.length - 1)) {
-                        const contextProps: any = mapContextToProps(nextResult, parentProps);
-                        return <Component
-                            {...parentProps}
-                            {...contextProps}
-                        />;
-                    }
-                    return getContents(index + 1, parentProps, props, nextResult);
-                }}
-            </Consumer>;
+    return function<P extends TargetProps>(Target: React.ComponentType<P>) {
+        return class Combiner extends React.Component<Diff<P, TargetProps>> {
+            public static Component = Target;
+            public static displayName = `Combined(${Target.displayName || Target.name})`
+            public render() {
+                const list = Object.values(contextMap);
+                if(!list.length) return <Target {...(this.props as P)}/>;
+                return this.getContext(Object.keys(contextMap), list, 0, {});
+            }
+            public getContext(
+                keys: string[],
+                contextsList: ReadonlyArray<React.Context<any> | ISafeContext<any>>,
+                index: number,
+                resolvedMap: Readonly<Record<string, any>>
+            ) {
+                const {Consumer} = contextsList[index];
+                return <Consumer>
+                    {value => {
+                        const newResolvedMap = {
+                            ...resolvedMap,
+                            [keys[index]]: value
+                        };
+                        if(index === (contextsList.length - 1)) {
+                            const contextMap = newResolvedMap as ResolveContextMap<ContextMap>;
+                            const finalProps = {
+                                ...this.props,
+                                ...mapContextToProps(contextMap)
+                            } as P;
+                            return <Target {...finalProps} />;
+                        }
+                        return this.getContext(
+                            keys,
+                            contextsList,
+                            index + 1,
+                            newResolvedMap
+                        );
+                    }}
+                </Consumer>
+            }
         }
-        function SafeContext(props: ComponentProps) {
-            return getContents(0, props, Object.keys(map), {});
-        }
-        SafeContext.displayName = `SafeContext(${Component.displayName})`;
-        return SafeContext;
-    };
+    }
 }
