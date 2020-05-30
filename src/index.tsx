@@ -7,7 +7,7 @@ export type ExtractContextType<T> = T extends React.Context<infer ContextType> ?
                                     T extends ISafeContext<infer OutputContextType> ?
                                     OutputContextType : never;
 
-export interface ISafeContext<T> {
+export interface ISafeContext<T> extends Pick<ISafeContextOptions, 'name'> {
     Provider: React.ComponentType<{
         value: T;
     }>;
@@ -17,14 +17,18 @@ export interface ISafeContext<T> {
 }
 
 export interface ISafeContextOptions {
-    name?: string;
+    name: string;
     /**
      * Executed
      */
-    onError?: (this: ISafeContextOptions) => React.ReactNode;
+    onError: () => React.ReactNode;
 }
 
 export const ContextFailure = createContext<React.ReactNode>(null);
+
+export function renderArgument(input: React.ReactNode) {
+    return input;
+}
 
 /**
  * By default the createSafeContext() will render whatever was provided to `ContextFailure`
@@ -32,33 +36,41 @@ export const ContextFailure = createContext<React.ReactNode>(null);
  * change the default behavior. (See `onError` option)
  * @param data Safe context options
  */
-export function createSafeContext<T>(data: ISafeContextOptions = {}): ISafeContext<T> {
+export function createSafeContext<T>(data: Partial<ISafeContextOptions> = {}): ISafeContext<T> {
+    const contextName = data.name || 'UntitledContext';
     const OriginalContext = createContext<T | undefined>(undefined);
     function Provider(props: ProviderProps<T>) {
         return <OriginalContext.Provider {...props} />;
     }
-    Provider.displayName = `SafeContext(Provider(${data.name}))`;
+    Provider.displayName = `SafeContext(Provider(${contextName}))`;
+
+    function renderWithContextValue(
+        this: undefined,
+        children: (value: T) => React.ReactNode,
+        value?: T
+    ) {
+        if(typeof value === 'undefined') {
+            if(data.onError) {
+                return data.onError();
+            }
+            return <ContextFailure.Consumer>
+                {renderArgument}
+            </ContextFailure.Consumer>;
+        }
+        return children(value);
+    }
 
     function Consumer({
         children,
         ...props
     }: ConsumerProps<T>) {
         return <OriginalContext.Consumer {...props}>
-            {(value) => {
-                if(typeof value === 'undefined') {
-                    if(data.onError) {
-                        return data.onError();
-                    }
-                    return <ContextFailure.Consumer>
-                        {children => children}
-                    </ContextFailure.Consumer>;
-                }
-                return children(value);
-            }}
+            {renderWithContextValue.bind(undefined, children)}
         </OriginalContext.Consumer>;
     }
-    Consumer.displayName = `SafeContext(Consumer(${data.name}))`;
+    Consumer.displayName = `SafeContext(Consumer(${contextName}))`;
     return {
+        name: contextName,
         Provider,
         Consumer
     };
@@ -67,6 +79,9 @@ export function createSafeContext<T>(data: ISafeContextOptions = {}): ISafeConte
 export type ResolveContextMap<Map extends object> = {
     [K in keyof Map]: ExtractContextType<Map[K]>;
 };
+
+type ContextKeys = readonly string[];
+type ContextsList = ReadonlyArray<React.Context<any> | ISafeContext<any>>;
 
 export function withContext<
     ContextMap extends Record<string, React.Context<any> | ISafeContext<any>>,
@@ -78,18 +93,22 @@ export function withContext<
     contextMap: ContextMap,
     mapContextToProps: ((contextMap: ResolveContextMap<ContextMap>) => TargetProps)
 ) {
-    return function<P extends TargetProps>(Target: React.ComponentType<P>) {
-        return class Combiner extends React.Component<Diff<P, TargetProps>> {
+    type NewProps<P extends object> = Diff<P, TargetProps>;
+    const list: ContextsList = Object.values(contextMap);
+    const keys: ContextKeys = Object.keys(contextMap);
+    return function<P extends TargetProps>(
+        Target: React.ComponentType<P>
+    ) {
+        return class Combiner extends React.Component<NewProps<P>> {
             public static Component = Target;
             public static displayName = `Combined(${Target.displayName || Target.name})`
             public render() {
-                const list = Object.values(contextMap);
-                if(!list.length) return <Target {...(this.props as P)}/>;
-                return this.getContext(Object.keys(contextMap), list, 0, {});
+                if(!list.length) return <Target {...(this.props as P)} />;
+                return this.getContext(keys, list, 0, {});
             }
             public getContext(
-                keys: string[],
-                contextsList: ReadonlyArray<React.Context<any> | ISafeContext<any>>,
+                keys: ContextKeys,
+                contextsList: ContextsList,
                 index: number,
                 resolvedMap: Readonly<Record<string, any>>
             ) {
