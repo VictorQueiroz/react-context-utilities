@@ -78,7 +78,7 @@ test('withContext() baked component should return original component', () => {
 test('withContext() should handle multiple contexts', () => {
     const Version = React.createContext(1.0);
     const URL = React.createContext('http://localhost:8080');
-    const Location = React.createContext([
+    const Location = React.createContext<[number, number]>([
         37.0902,
         95.7129
     ]);
@@ -97,7 +97,11 @@ test('withContext() should handle multiple contexts', () => {
         version: Version,
         url: URL,
         location: Location
-    }, props => props)(View);
+    }, ({location, url, version}) => ({
+        version,
+        url,
+        location
+    }))(View);
     const wrapper = shallow(<Wrapped_View/>);
     expect(wrapper.html()).to.be.equal('URL: http://localhost:8080, Location: latitude = 37.0902, longitude = 95.7129, Version: 1.0')
 });
@@ -124,6 +128,24 @@ test('withContext() should combine one or more context', () => {
     </ConfigContext.Provider>);
 
     expect(wrapper.html()).to.be.deep.equal('Title property is &quot;x&quot; and max response time is &quot;1000&quot;');
+});
+
+test('it should not accept withContext() calls where it actually injects invalid properties on the component', () => {
+    const Version = React.createContext(1.0);
+    const Test = ({version}: {version: string;}) => <React.Fragment>
+        Version is {version}
+    </React.Fragment>;
+
+    const mapContextToProps = ({version}: {
+        version: number;
+    }) => ({version});
+    
+    const create = withContext({
+        version: Version
+    }, mapContextToProps);
+
+    //@ts-expect-error
+    create(Test);
 });
 
 export default suite;

@@ -83,6 +83,12 @@ export type ResolveContextMap<Map extends object> = {
 type ContextKeys = readonly string[];
 type ContextsList = ReadonlyArray<React.Context<any> | ISafeContext<any>>;
 
+type MatchProps<InjectedProps extends object, P extends object> = {
+    [K in keyof P]: K extends keyof InjectedProps ? (
+        InjectedProps[K] extends P[K] ? P[K] : InjectedProps[K]
+    ) : P[K];
+};
+
 export function withContext<
     ContextMap extends Record<string, React.Context<any> | ISafeContext<any>>,
     /**
@@ -93,17 +99,20 @@ export function withContext<
     contextMap: ContextMap,
     mapContextToProps: ((contextMap: ResolveContextMap<ContextMap>) => TargetProps)
 ) {
-    type NewProps<P extends object> = Diff<P, TargetProps>;
     const list: ContextsList = Object.values(contextMap);
     const keys: ContextKeys = Object.keys(contextMap);
-    return function<P extends TargetProps>(
-        Target: React.ComponentType<P>
+    return function<T extends React.ComponentType<MatchProps<TargetProps, React.ComponentProps<T>>>>(
+        Target: T
     ) {
-        return class Combiner extends React.Component<NewProps<P>> {
+        type P = React.ComponentProps<T>;
+        return class Combiner extends React.Component<Diff<P, TargetProps>> {
             public static Component = Target;
-            public static displayName = `Combined(${Target.displayName || Target.name})`
+            public static displayName = `Combined(${Target.displayName || Target.name})`;
             public render() {
-                if(!list.length) return <Target {...(this.props as P)} />;
+                if(!list.length) return React.createElement(
+                    Target,
+                    this.props as P
+                );
                 return this.getContext(keys, list, 0, {});
             }
             public getContext(
@@ -125,7 +134,10 @@ export function withContext<
                                 ...this.props,
                                 ...mapContextToProps(contextMap)
                             } as P;
-                            return <Target {...finalProps} />;
+                            return React.createElement(
+                                Target,
+                                finalProps
+                            );
                         }
                         return this.getContext(
                             keys,
