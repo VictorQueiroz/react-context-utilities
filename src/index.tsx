@@ -89,6 +89,25 @@ type MatchProps<InjectedProps extends object, P extends object> = {
     ) : P[K];
 };
 
+export function shallowIsEqual<T1 extends object, T2 extends T1>(
+    a1: T1,
+    a2: T2
+) {
+    const keys = Object.keys(a1) as Array<keyof T1>;
+    if(keys.length !== Object.keys(a2).length) return false;
+    for(const key of keys) {
+        if(a1[key] !== a2[key]) return false;
+    }
+    return true;
+}
+
+interface ICombinerSnapshot {
+    inputProps: any;
+    contextMap: any;
+    mappedProps: any;
+    cachedElement: React.ReactElement<any>;
+}
+
 export function withContext<
     ContextMap extends Record<string, React.Context<any> | ISafeContext<any>>,
     /**
@@ -103,11 +122,14 @@ export function withContext<
     const keys: ContextKeys = Object.keys(contextMap);
     return function<T extends React.ComponentType<MatchProps<TargetProps, React.ComponentProps<T>>>>(
         Target: T
-    ) {
+    ): React.ComponentType<Diff<React.ComponentProps<T>, TargetProps>> & {
+        Component: T;
+    } {
         type P = React.ComponentProps<T>;
-        return class Combiner extends React.Component<Diff<P, TargetProps>> {
+        class Combiner extends React.Component<Diff<P, TargetProps>> {
             public static Component = Target;
             public static displayName = `Combined(${Target.displayName || Target.name})`;
+            private snapshot?: ICombinerSnapshot;
             public render() {
                 if(!list.length) return React.createElement(
                     Target,
@@ -130,14 +152,62 @@ export function withContext<
                         };
                         if(index === (contextsList.length - 1)) {
                             const contextMap = newResolvedMap as ResolveContextMap<ContextMap>;
-                            const finalProps = {
-                                ...this.props,
-                                ...mapContextToProps(contextMap)
-                            } as P;
-                            return React.createElement(
-                                Target,
-                                finalProps
-                            );
+                            let {snapshot} = this;
+                            if(!snapshot) {
+                                const mappedProps = mapContextToProps(contextMap);
+                                const finalProps = {
+                                    ...this.props,
+                                    ...mappedProps
+                                } as P;
+                                snapshot = {
+                                    contextMap,
+                                    mappedProps,
+                                    inputProps: this.props,
+                                    cachedElement: React.createElement(
+                                        Target,
+                                        finalProps
+                                    )
+                                };
+                                return snapshot.cachedElement;
+                            }
+                            const contextMapChanged = !shallowIsEqual(snapshot.contextMap, contextMap);
+                            const propsChanged = !shallowIsEqual(snapshot.inputProps, this.props);
+                            snapshot.inputProps = this.props;
+                            snapshot.contextMap = contextMap;
+                            if(propsChanged && !contextMapChanged) {
+                                snapshot.cachedElement = React.cloneElement(
+                                    snapshot.cachedElement,
+                                    {
+                                        ...this.props,
+                                        ...snapshot.mappedProps
+                                    }
+                                );
+                            } else if(contextMapChanged && !propsChanged) {
+                                const newMappedProps = mapContextToProps(contextMap);
+                                if(!shallowIsEqual(newMappedProps, snapshot.mappedProps)) {
+                                    const finalProps = {
+                                        ...this.props,
+                                        ...newMappedProps
+                                    };
+                                    snapshot.mappedProps = newMappedProps;
+                                    snapshot.cachedElement = React.cloneElement(
+                                        snapshot.cachedElement,
+                                        finalProps
+                                    );
+                                }
+                            } else if(contextMapChanged && propsChanged) {
+                                const newMappedProps = mapContextToProps(contextMap);
+                                const finalProps = {
+                                    ...snapshot.inputProps,
+                                    ...newMappedProps
+                                };
+                                snapshot.mappedProps = newMappedProps;
+                                snapshot.cachedElement = React.cloneElement(
+                                    snapshot.cachedElement,
+                                    finalProps
+                                );
+                            }
+                            return snapshot.cachedElement;
                         }
                         return this.getContext(
                             keys,
@@ -149,5 +219,6 @@ export function withContext<
                 </Consumer>
             }
         }
+        return Combiner;
     }
 }
