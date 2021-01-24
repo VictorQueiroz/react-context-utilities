@@ -54,25 +54,79 @@ test('withContext() should work if withContext receive no contexts at all', () =
     expect(wrapper.html()).to.be.equal('Title');
 });
 
-test('withContext() baked component should return original component', () => {
-    const VersionContext = React.createContext(1.0);
-    const Test1 = ({title, version}: {
-        title: string;
-        version: number;
-    }) => <React.Fragment>{title} v{version.toFixed(1)}</React.Fragment>;
-    const Wrapped_Test1 = withContext({
-        version: VersionContext
-    }, ({version}) => ({version}))(Test1);
-    const wrapper1 = shallow(
-        <Wrapped_Test1.Component
-            title="App"
-            version={2.0}/>
-    );
-    const wrapper2 = shallow(
-        <Wrapped_Test1 title="App"/>
-    );
-    expect(wrapper1.html()).to.be.equal('App v2.0');
-    expect(wrapper2.html()).to.be.equal('App v1.0');
+// test('withContext() baked component should return original component', () => {
+//     const VersionContext = React.createContext(1.0);
+//     const Test1 = ({title, version}: {
+//         title: string;
+//         version: number;
+//     }) => <React.Fragment>{title} v{version.toFixed(1)}</React.Fragment>;
+//     const Wrapped_Test1 = withContext({
+//         version: VersionContext
+//     }, ({version}) => ({version}))(Test1);
+//     const wrapper1 = shallow(
+//         <Wrapped_Test1.Component
+//             title="App"
+//             version={2.0}/>
+//     );
+//     const wrapper2 = shallow(
+//         <Wrapped_Test1 title="App"/>
+//     );
+//     expect(wrapper1.html()).to.be.equal('App v2.0');
+//     expect(wrapper2.html()).to.be.equal('App v1.0');
+// });
+
+// test('withContext() should have mapContextToProps property as optional', () => {
+//     const Version = React.createContext(1.0);
+//     function View({Version}:{Version: number;}) {
+//         return <React.Fragment>
+//             Version is {Version}
+//         </React.Fragment>;
+//     }
+//     const Wrapped = withContext({
+//         Version
+//     })(View);
+//     <Wrapped/>;
+// });
+
+// test('withContext() should infer properties even if no mapContextToProps property is defined', () => {
+//     function View({Version}:{Version: number;}) {
+//         return <React.Fragment>
+//             Version is {Version}
+//         </React.Fragment>;
+//     }
+//     const Wrapped2 = withContext({
+//         Version: React.createContext('')
+//     });
+//     /* @ts-expect-error */ 
+//     Wrapped2(View);
+// })
+
+test('withContext() should return a component capable of forwarding ref', () => {
+    const Version = React.createContext(1.0);
+    class View extends React.PureComponent<{title: string; version: number;}> {
+        public getVersion() {
+            return this.props.version;
+        }
+        public render() {
+            const {
+                version
+            } = this.props;
+            return <React.Fragment>
+                Version is {version}
+            </React.Fragment>;
+        }
+    }
+    const Wrapped = withContext({
+        Version
+    },({Version}) => ({version: Version})).withForwardRef(View);
+    const ref = React.createRef<View>();
+    <Wrapped title="" ref={ref} />;
+    // @ts-expect-error
+    <Wrapped ref={ref} />;
+    // @ts-expect-error
+    <Wrapped title={0} ref={ref} />;
+
+    ref.current?.getVersion();
 });
 
 test('withContext() should handle multiple contexts', () => {

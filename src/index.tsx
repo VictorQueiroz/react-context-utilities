@@ -80,10 +80,12 @@ export type ResolveContextMap<Map extends object> = {
     [K in keyof Map]: ExtractContextType<Map[K]>;
 };
 
-type ContextKeys = readonly string[];
-type ContextsList = ReadonlyArray<React.Context<any> | ISafeContext<any>>;
+export type ContextKeys = readonly string[];
+export type ContextsList = ReadonlyArray<React.Context<any> | ISafeContext<any>>;
 
-type MatchProps<InjectedProps extends object, P extends object> = {
+export type PropsLike = Record<string, unknown>;
+
+export type MatchProps<InjectedProps extends PropsLike, P extends PropsLike> = {
     [K in keyof P]: K extends keyof InjectedProps ? (
         InjectedProps[K] extends P[K] ? P[K] : InjectedProps[K]
     ) : P[K];
@@ -94,60 +96,80 @@ export function withContext<
     /**
      * Props that are going to be omitted from component when attached
      */
-    TargetProps extends object
+    TargetProps extends PropsLike
 >(
     contextMap: ContextMap,
     mapContextToProps: ((contextMap: ResolveContextMap<ContextMap>) => TargetProps)
 ) {
     const list: ContextsList = Object.values(contextMap);
     const keys: ContextKeys = Object.keys(contextMap);
-    return function<T extends React.ComponentType<MatchProps<TargetProps, React.ComponentProps<T>>>>(
-        Target: T
-    ) {
-        type P = React.ComponentProps<T>;
-        return class Combiner extends React.Component<Diff<P, TargetProps>> {
-            public static Component = Target;
-            public static displayName = `Combined(${Target.displayName || Target.name})`;
-            public render() {
-                if(!list.length) return React.createElement(
-                    Target,
-                    this.props as P
-                );
-                return this.getContext(keys, list, 0, {});
-            }
-            public getContext(
-                keys: ContextKeys,
-                contextsList: ContextsList,
-                index: number,
-                resolvedMap: Readonly<Record<string, any>>
-            ) {
-                const {Consumer} = contextsList[index];
-                return <Consumer>
-                    {value => {
-                        const newResolvedMap = {
-                            ...resolvedMap,
-                            [keys[index]]: value
-                        };
-                        if(index === (contextsList.length - 1)) {
-                            const contextMap = newResolvedMap as ResolveContextMap<ContextMap>;
-                            const finalProps = {
-                                ...this.props,
-                                ...mapContextToProps(contextMap)
-                            } as P;
-                            return React.createElement(
-                                Target,
-                                finalProps
-                            );
-                        }
-                        return this.getContext(
-                            keys,
-                            contextsList,
-                            index + 1,
-                            newResolvedMap
-                        );
-                    }}
-                </Consumer>
-            }
+
+    type ResolvedContextMap = ResolveContextMap<ContextMap>;
+    type GetFinalProps<T extends React.ComponentType<any>> = Diff<React.ComponentProps<T>, TargetProps>;
+
+    function getContext(map: Partial<ResolvedContextMap>, index: number, callback: (contextMap: TargetProps) => React.ReactElement) {
+        if(index > (list.length - 1)) {
+            return callback(Object.freeze(Object.seal(mapContextToProps(map as ResolvedContextMap))));
         }
+        const {Consumer} = list[index];
+        return <Consumer>
+            {value => {
+                map = Object.seal(Object.freeze({
+                    ...map,
+                    [keys[index]]: value
+                }));
+                return getContext(map, index + 1, callback);
+            }}
+        </Consumer>;
     }
+
+    type GetExpectedComponentProps<T extends React.ComponentType<any>> = MatchProps<TargetProps, React.ComponentProps<T>>;
+
+    const withForwardRef = <T extends React.ComponentType<GetExpectedComponentProps<T>>>(
+        Target: T
+    ) => {
+        type FinalProps = GetFinalProps<T>;
+        type ComponentInstance = T extends React.ComponentClass<any> ? InstanceType<T> : undefined;
+        type ComputedExpectedComponentProps = GetExpectedComponentProps<T>;
+    
+        const Component = Target as React.ComponentType<ComputedExpectedComponentProps>;
+    
+        return React.forwardRef<ComponentInstance, FinalProps>((props, ref) => {
+            function render(missingProps: TargetProps) {
+                const mergedProps = {
+                    ...missingProps,
+                    ...props
+                } as ComputedExpectedComponentProps;
+                return (
+                    <Component
+                        {...mergedProps}
+                        ref={ref} />
+                );
+            }
+            return getContext({}, 0, render);
+        });
+    };
+
+    const defaultResult = <T extends React.ComponentType<GetExpectedComponentProps<T>>> (Target: T): React.ComponentType<GetFinalProps<T>> => {
+        type ComputedExpectedComponentProps = GetExpectedComponentProps<T>;
+        type ResultInputProps = GetFinalProps<T>;
+        const Component = Target as React.ComponentType<ComputedExpectedComponentProps>
+        const Result: React.ComponentType<ResultInputProps> = function(props: ResultInputProps) {
+            function render(targetProps: TargetProps) {
+                const mergedProps = {
+                    ...targetProps,
+                    ...props
+                } as ComputedExpectedComponentProps;
+                return (
+                    <Component {...mergedProps} />
+                );
+            }
+            return getContext({}, 0, render);
+        }
+        Result.displayName = Target.displayName;
+        return Result;
+    };
+    defaultResult.withForwardRef = withForwardRef;
+
+    return defaultResult;
 }
