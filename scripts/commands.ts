@@ -58,20 +58,17 @@ async function test() {
 }
 
 async function release() {
+    const libFolder = path.resolve(__dirname,'../lib/src');
     await test();
     await runScript(`
         npx tsc \
-            -b ${path.resolve(__dirname,'../src')} && \
+            -b ${path.resolve(__dirname,'../test')} && \
         rm -rfv ${dest} && \
         mkdir -pv ${dest} && \
         npx babel \
             --config-file ${path.resolve(__dirname,'../.babelrc')} \
-            ${path.resolve(__dirname,'../lib')} \
-            -d ${dest} && \
-        npx tsc \
-            --project ${path.resolve(__dirname,'../src')} \
-            --emitDeclarationOnly \
-            --outDir ${dest} && \
+            ${libFolder} \
+            -Dd ${dest} && \
         cp -v \
             ${path.resolve(__dirname,'../package.json')} \
             ${dest}

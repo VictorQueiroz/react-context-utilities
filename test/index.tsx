@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { shallow } from 'enzyme';
-import * as React from 'react';
+import { createContext, createRef, Fragment, PureComponent } from 'react';
 import { Suite } from 'sarg';
 import { spy } from 'sinon';
 import {
@@ -33,9 +33,9 @@ test('it should render the value provided to ContextFailure in case of unprovide
         name: 'VersionContext'
     });
     const Test = () => (
-        <ContextFailure.Provider value={<React.Fragment>
+        <ContextFailure.Provider value={<Fragment>
             There was an application error, please try again later.
-        </React.Fragment>}>
+        </Fragment>}>
             <VersionContext.Consumer>{() => null}</VersionContext.Consumer>
         </ContextFailure.Provider>
     );
@@ -46,20 +46,20 @@ test('it should render the value provided to ContextFailure in case of unprovide
 });
 
 test('withContext() should work if withContext receive no contexts at all', () => {
-    const Test1 = ({title}: {title: string;}) => <React.Fragment>
+    const Test1 = ({title}: {title: string;}) => <Fragment>
         {title}
-    </React.Fragment>;
+    </Fragment>;
     const Wrapped_Test1 = withContext({}, () => ({}))(Test1);
     const wrapper = shallow(<Wrapped_Test1 title="Title" />);
     expect(wrapper.html()).to.be.equal('Title');
 });
 
 // test('withContext() baked component should return original component', () => {
-//     const VersionContext = React.createContext(1.0);
+//     const VersionContext = createContext(1.0);
 //     const Test1 = ({title, version}: {
 //         title: string;
 //         version: number;
-//     }) => <React.Fragment>{title} v{version.toFixed(1)}</React.Fragment>;
+//     }) => <Fragment>{title} v{version.toFixed(1)}</Fragment>;
 //     const Wrapped_Test1 = withContext({
 //         version: VersionContext
 //     }, ({version}) => ({version}))(Test1);
@@ -76,11 +76,11 @@ test('withContext() should work if withContext receive no contexts at all', () =
 // });
 
 // test('withContext() should have mapContextToProps property as optional', () => {
-//     const Version = React.createContext(1.0);
+//     const Version = createContext(1.0);
 //     function View({Version}:{Version: number;}) {
-//         return <React.Fragment>
+//         return <Fragment>
 //             Version is {Version}
-//         </React.Fragment>;
+//         </Fragment>;
 //     }
 //     const Wrapped = withContext({
 //         Version
@@ -90,20 +90,39 @@ test('withContext() should work if withContext receive no contexts at all', () =
 
 // test('withContext() should infer properties even if no mapContextToProps property is defined', () => {
 //     function View({Version}:{Version: number;}) {
-//         return <React.Fragment>
+//         return <Fragment>
 //             Version is {Version}
-//         </React.Fragment>;
+//         </Fragment>;
 //     }
 //     const Wrapped2 = withContext({
-//         Version: React.createContext('')
+//         Version: createContext('')
 //     });
 //     /* @ts-expect-error */ 
 //     Wrapped2(View);
 // })
 
+test('withContext() should keep optional properties', () => {
+    const Version = createContext(1.0);
+    const View = (props: {
+        version: number;
+        title?: string;
+    }) => (
+        <Fragment>
+            Title is {props.title} and version is {props.version}.
+        </Fragment>
+    );
+    const View2 = withContext({
+        version: Version
+    },({version}) =>({version}))(View);
+    <View2/>;
+    <View2 title={undefined}/>;
+    // @ts-expect-error
+    <View2 title={1}/>;
+})
+
 test('withContext() should return a component capable of forwarding ref', () => {
-    const Version = React.createContext(1.0);
-    class View extends React.PureComponent<{title: string; version: number;}> {
+    const Version = createContext(1.0);
+    class View extends PureComponent<{title: string; version: number;}> {
         public getVersion() {
             return this.props.version;
         }
@@ -111,15 +130,15 @@ test('withContext() should return a component capable of forwarding ref', () => 
             const {
                 version
             } = this.props;
-            return <React.Fragment>
+            return <Fragment>
                 Version is {version}
-            </React.Fragment>;
+            </Fragment>;
         }
     }
     const Wrapped = withContext({
         Version
     },({Version}) => ({version: Version})).withForwardRef(View);
-    const ref = React.createRef<View>();
+    const ref = createRef<View>();
     <Wrapped title="" ref={ref} />;
     // @ts-expect-error
     <Wrapped ref={ref} />;
@@ -129,10 +148,33 @@ test('withContext() should return a component capable of forwarding ref', () => 
     ref.current?.getVersion();
 });
 
+test('withContext() should not accept ref object incompatible with the ref type', () => {
+    const Version = createContext(1.0);
+    class View extends PureComponent<{title: string; version: number;}> {
+        public getVersion() {
+            return this.props.version;
+        }
+        public render() {
+            const {
+                version
+            } = this.props;
+            return <Fragment>
+                Version is {version}
+            </Fragment>;
+        }
+    }
+    const Wrapped = withContext({
+        Version
+    },({Version}) => ({version: Version})).withForwardRef(View);
+    const ref = createRef<HTMLDivElement>();
+    // @ts-expect-error
+    <Wrapped title="" ref={ref} />;
+});
+
 test('withContext() should handle multiple contexts', () => {
-    const Version = React.createContext(1.0);
-    const URL = React.createContext('http://localhost:8080');
-    const Location = React.createContext<[number, number]>([
+    const Version = createContext(1.0);
+    const URL = createContext('http://localhost:8080');
+    const Location = createContext<[number, number]>([
         37.0902,
         95.7129
     ]);
@@ -144,9 +186,9 @@ test('withContext() should handle multiple contexts', () => {
         location: [number, number];
         version: number;
         url: string;
-    }) => <React.Fragment>
+    }) => <Fragment>
         URL: {url}, Location: latitude = {location[0]}, longitude = {location[1]}, Version: {version.toFixed(1)}
-    </React.Fragment>;
+    </Fragment>;
     const Wrapped_View = withContext({
         version: Version,
         url: URL,
@@ -168,9 +210,9 @@ test('withContext() should combine one or more context', () => {
         name: 'ConfigContext'
     });
     const Menu = ({ config, title }: { config: IConfig; title: string; }) => {
-        return <React.Fragment>
+        return <Fragment>
             Title property is "{title}" and max response time is "{config.maxWaitTime}"
-        </React.Fragment>;
+        </Fragment>;
     };
     const MenuWithContext = withContext({
         config: ConfigContext
@@ -185,10 +227,10 @@ test('withContext() should combine one or more context', () => {
 });
 
 test('it should not accept withContext() calls where it actually injects invalid properties on the component', () => {
-    const Version = React.createContext(1.0);
-    const Test = ({version}: {version: string;}) => <React.Fragment>
+    const Version = createContext(1.0);
+    const Test = ({version}: {version: string;}) => <Fragment>
         Version is {version}
-    </React.Fragment>;
+    </Fragment>;
 
     const mapContextToProps = ({version}: {
         version: number;

@@ -1,8 +1,10 @@
 {
     "extends":"../tsconfig.base.json",
     "compilerOptions": {
-        "outDir": "../lib",
-        "target": "ESNext",
+        "jsx": "react-jsx",
         "isolatedModules": true
-    }
+    },
+    "include": [
+        "./index.tsx"
+    ]
 }
